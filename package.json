@@ -1,0 +1,50 @@
+{
+  "name": "aithon-mcp-server",
+  "version": "0.1.0",
+  "description": "Stdio MCP server that relays to the Aithon marketplace agent endpoint: search the catalog, read order schemas, draft orders, check availability.",
+  "license": "MIT",
+  "author": "Nathan Rone",
+  "type": "module",
+  "bin": {
+    "aithon-mcp-server": "dist/index.js"
+  },
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/chmod-bin.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "aithon",
+    "marketplace",
+    "ai-agents",
+    "claude"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/onepequity/aithon-mcp-server.git"
+  },
+  "homepage": "https://github.com/onepequity/aithon-mcp-server#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
