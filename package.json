@@ -1,7 +1,7 @@
 {
   "name": "aithon-mcp-server",
-  "version": "0.1.0",
-  "description": "Stdio MCP server that relays to the Aithon marketplace agent endpoint: search the catalog, read order schemas, draft orders, check availability.",
+  "version": "0.2.0",
+  "description": "Stdio MCP server that mirrors the Aithon marketplace agent tools: search the catalog, request quotes, draft orders from confirmed quotes, check availability.",
   "license": "MIT",
   "author": "Nathan Rone",
   "type": "module",
@@ -23,6 +23,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "pretest": "npm run build",
     "test": "vitest run",
+    "snapshot": "node scripts/update-snapshot.mjs",
     "prepublishOnly": "npm test"
   },
   "keywords": [

@@ -8,19 +8,19 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ConfigError, loadConfig } from './config.js';
 import { createRemote } from './remote.js';
 import { createServer } from './server.js';
+import { DEFAULT_LIST_TIMEOUT_MS, ToolCatalog } from './tools.js';
 import { VERSION } from './version.js';
 
 const HELP = `aithon-mcp-server ${VERSION}
 
-Stdio MCP server that relays tool calls to the Aithon marketplace.
+Stdio MCP server that mirrors the Aithon marketplace tools and relays calls to them.
 
 Environment:
-  AITHON_API_KEY     Agent API key (needed for order_draft, availability_check, mandate_get)
-  AITHON_CATALOG     Optional catalog slug; scopes calls to /c/<slug>
+  AITHON_API_KEY     Agent API key, sent as a bearer token (the server decides which tools need it)
+  AITHON_CATALOG     Optional catalog slug; scopes calls to /c/<slug>/mcp
   AITHON_BASE_URL    Default https://aithon.tech
   AITHON_MCP_URL     Streamable HTTP endpoint (default <base>/mcp)
-  AITHON_RPC_URL     Legacy JSON-RPC endpoint (default <base>/api/v1/mcp/rpc)
-  AITHON_TRANSPORT   auto (default) | mcp | legacy
+  AITHON_TRANSPORT   auto (default) | mcp; legacy is ignored since 0.2.0
   AITHON_TIMEOUT_MS  Per-request timeout, default 30000
 `;
 
@@ -40,10 +40,13 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const remote = createRemote(config, log);
-  const server = createServer(config, remote);
+  for (const warning of config.warnings) log(`warning: ${warning}`);
 
-  log(`v${VERSION} relaying to ${remote.describe()}${config.apiKey ? '' : ' (no AITHON_API_KEY: catalog tools only)'}`);
+  const remote = createRemote(config);
+  const catalog = new ToolCatalog(remote, { log, listTimeoutMs: Math.min(config.timeoutMs, DEFAULT_LIST_TIMEOUT_MS) });
+  const server = createServer(config, remote, { catalog, log });
+
+  log(`v${VERSION} relaying to ${remote.describe()}${config.apiKey ? '' : ' (no AITHON_API_KEY: anonymous, catalog tools only)'}`);
 
   const shutdown = async () => {
     await server.close().catch(() => undefined);
@@ -54,6 +57,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
 
   await server.connect(new StdioServerTransport());
+  // Fetch the remote tool list now so the client's first tools/list is fast.
+  void catalog.list();
 }
 
 main().catch((err) => {

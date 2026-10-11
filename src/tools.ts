@@ -1,144 +1,155 @@
 /**
- * The six Aithon agent tools.
+ * Tool mirroring.
  *
- * Input schemas mirror the remote server's zod schemas. The remote validates
- * again, so these exist to give MCP clients an accurate JSON Schema and to
- * reject obviously malformed calls before any network request.
+ * The relay does not hardcode any tools. It asks the remote for its tools/list
+ * and exposes every tool it finds, with the same description and inputSchema.
+ * Only the name changes: Aithon uses dotted names (`order.draft`), and several
+ * MCP clients (and the model APIs behind them) only accept [A-Za-z0-9_-], so
+ * each dot becomes an underscore (`order_draft`).
  *
- * Local names use underscores because several MCP clients (and the model APIs
- * behind them) only accept [A-Za-z0-9_-] in tool names. Each tool maps to its
- * dotted name on the remote MCP endpoint and, where one exists, its legacy
- * `aithon.*` JSON-RPC method.
+ * If the remote list cannot be fetched, a bundled snapshot is served instead.
  */
 
-import { z, type ZodRawShape } from 'zod';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { SNAPSHOT_TOOLS } from './tools.snapshot.js';
 
-export interface AithonTool {
-  /** Name exposed to the local MCP client. */
-  name: string;
-  /** Candidate tool names on the remote MCP endpoint, preferred first. */
-  remoteNames: string[];
-  /** Legacy JSON-RPC method, if the tool is reachable over the legacy endpoint. */
-  legacyMethod?: string;
-  title: string;
-  description: string;
-  inputShape: ZodRawShape;
-  /** True when the remote requires a registered agent (Tier 1) for this tool. */
-  requiresApiKey: boolean;
-  readOnly: boolean;
+/** A tool definition as returned by the remote tools/list. */
+export type RemoteTool = Pick<Tool, 'name' | 'inputSchema'> &
+  Partial<Pick<Tool, 'title' | 'description' | 'outputSchema' | 'annotations'>>;
+
+export interface MirroredTool {
+  /** Name exposed to the local MCP client, e.g. `order_draft`. */
+  localName: string;
+  /** Name on the remote endpoint, e.g. `order.draft`. */
+  remoteName: string;
+  /** Definition served to the local client. */
+  definition: Tool;
 }
 
-const serviceId = z.string().min(1).describe('Service ID from catalog_search');
+export type ToolSource = 'remote' | 'snapshot';
 
-const structuredAddress = z.object({
-  line1: z.string().min(1).describe('Street address'),
-  city: z.string().optional(),
-  state: z.string().optional().describe('2-letter state code'),
-  zip: z.string().optional().describe('5-digit ZIP (ZIP+4 accepted)'),
-});
+/** `order.draft` -> `order_draft`. Any character outside [A-Za-z0-9_-] becomes `_`. */
+export function toLocalName(remoteName: string): string {
+  return remoteName.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+}
 
-export const TOOLS: AithonTool[] = [
-  {
-    name: 'catalog_search',
-    remoteNames: ['catalog.search'],
-    legacyMethod: 'aithon.catalog.search',
-    title: 'Search catalog',
-    description:
-      'Search the Aithon catalog of enterprise technology services (internet, voice, SD-WAN, managed IT, cloud, security). ' +
-      'Returns id, name, description, category, provider and display pricing for each match. No API key needed.',
-    inputShape: {
-      query: z.string().optional().describe('Case-insensitive text matched against service name and description'),
-      category: z.string().optional().describe('Exact category name, case-insensitive'),
-      limit: z.number().int().positive().max(100).optional().describe('Maximum results (default 25, max 100)'),
-    },
-    requiresApiKey: false,
-    readOnly: true,
-  },
-  {
-    name: 'catalog_get',
-    remoteNames: ['catalog.get'],
-    legacyMethod: 'aithon.catalog.get',
-    title: 'Get service details',
-    description:
-      'Get full details for one service: pricing (display, core rate, range, billing frequency), flags, and its order schema. No API key needed.',
-    inputShape: { service_id: serviceId },
-    requiresApiKey: false,
-    readOnly: true,
-  },
-  {
-    name: 'catalog_order_schema_get',
-    remoteNames: ['catalog.order_schema.get'],
-    legacyMethod: 'aithon.catalog.order_schema.get',
-    title: 'Get order schema',
-    description:
-      'Get the machine-orderable schema for a service: whether an agent can order it, variants, and the fields required before checkout. ' +
-      'Call this before order_draft. No API key needed.',
-    inputShape: { service_id: serviceId },
-    requiresApiKey: false,
-    readOnly: true,
-  },
-  {
-    name: 'order_draft',
-    remoteNames: ['order.draft', 'cart.draft.create'],
-    legacyMethod: 'aithon.cart.draft.create',
-    title: 'Draft an order',
-    description:
-      'Create a cart draft for an agent-orderable service. Nothing is purchased: the result includes cart and checkout URLs ' +
-      'for a human to review and complete. Requires a caller-generated session_id and AITHON_API_KEY.',
-    inputShape: {
-      service_id: serviceId,
-      session_id: z
-        .string()
-        .trim()
-        .min(8, 'session_id is required and must be caller-generated')
-        .describe('Caller-generated session id (8+ characters); reuse it to add more items to the same cart'),
-      quantity: z.number().int().min(1).max(100).optional().describe('Quantity, 1-100 (default 1)'),
-      variant_key: z.string().optional().describe('Variant key from the order schema; defaults to the schema default'),
-      service_configuration: z
-        .record(z.unknown())
-        .optional()
-        .describe('Values for the order schema pre-checkout fields'),
-    },
-    requiresApiKey: true,
-    readOnly: false,
-  },
-  {
-    name: 'availability_check',
-    remoteNames: ['availability.check'],
-    title: 'Check availability',
-    description:
-      'Check which suppliers can likely serve a US business address, with honest status (likely | unknown | confirmed | not_available), ' +
-      'the evidence source, and the price you are allowed to see. FCC data only ever yields likely or unknown; ' +
-      'pass confirm: true to ask suppliers for a binding answer. Requires AITHON_API_KEY and an owner mandate.',
-    inputShape: {
-      address: z
-        .union([z.string().trim().min(5, 'address is required'), structuredAddress])
-        .describe('US service address: one line ("2200 Ross Ave, Dallas, TX 75201") or structured'),
-      service_ids: z
-        .array(z.string())
-        .max(50)
-        .optional()
-        .describe('Limit the check to these services (default: every in-scope service with an availability class)'),
-      category: z.string().optional().describe('Limit the check to one category'),
-      phone: z.string().optional().describe('Business phone number; used only for NPA-NXX (exchange) footprints'),
-      confirm: z.boolean().optional().describe('Also ask each supplier to confirm; returns confirm_request_id per service'),
-    },
-    requiresApiKey: true,
-    readOnly: false,
-  },
-  {
-    name: 'mandate_get',
-    remoteNames: ['mandate.get'],
-    title: 'List my mandates',
-    description:
-      'List the mandates your owner has issued to you: which actions (browse, availability_check, quote, draft_order), ' +
-      'which categories, the monthly commitment ceiling, and when each expires. Requires AITHON_API_KEY.',
-    inputShape: {},
-    requiresApiKey: true,
-    readOnly: true,
-  },
-];
+/** Build the local view of a remote tool list. Later duplicates of a local name are dropped. */
+export function mirrorTools(tools: RemoteTool[], log?: (message: string) => void): MirroredTool[] {
+  const seen = new Map<string, string>();
+  const mirrored: MirroredTool[] = [];
+  for (const tool of tools) {
+    const localName = toLocalName(tool.name);
+    const clash = seen.get(localName);
+    if (clash !== undefined) {
+      log?.(`remote tools ${clash} and ${tool.name} both map to ${localName}; keeping ${clash}`);
+      continue;
+    }
+    seen.set(localName, tool.name);
+    const definition: Tool = { name: localName, inputSchema: tool.inputSchema };
+    if (tool.title !== undefined) definition.title = tool.title;
+    if (tool.description !== undefined) definition.description = tool.description;
+    if (tool.outputSchema !== undefined) definition.outputSchema = tool.outputSchema;
+    if (tool.annotations !== undefined) definition.annotations = tool.annotations;
+    mirrored.push({ localName, remoteName: tool.name, definition });
+  }
+  return mirrored;
+}
 
-export function findTool(name: string): AithonTool | undefined {
-  return TOOLS.find((tool) => tool.name === name);
+export interface ToolLister {
+  describe(): string;
+  listTools(timeoutMs?: number): Promise<RemoteTool[]>;
+}
+
+export interface ToolCatalogOptions {
+  log?: (message: string) => void;
+  /** Timeout for fetching the remote list. Kept short so a dead remote does not stall the client. */
+  listTimeoutMs?: number;
+  /** While serving the snapshot, retry the remote at most this often. */
+  retryMs?: number;
+  snapshot?: RemoteTool[];
+  now?: () => number;
+}
+
+export const DEFAULT_LIST_TIMEOUT_MS = 10_000;
+export const DEFAULT_RETRY_MS = 60_000;
+
+/**
+ * Caches the mirrored tool list. A remote list, once fetched, is kept for the
+ * process lifetime unless invalidate() is called (on notifications/tools/list_changed).
+ * The snapshot fallback is kept too, but the remote is retried on later lists.
+ */
+export class ToolCatalog {
+  private tools?: MirroredTool[];
+  private byName = new Map<string, MirroredTool>();
+  private loading?: Promise<MirroredTool[]>;
+  private lastAttempt = 0;
+  private stale = false;
+  private loggedFallback = false;
+  source?: ToolSource;
+
+  private readonly log: (message: string) => void;
+  private readonly listTimeoutMs: number;
+  private readonly retryMs: number;
+  private readonly snapshot: RemoteTool[];
+  private readonly now: () => number;
+
+  constructor(
+    private readonly remote: ToolLister,
+    options: ToolCatalogOptions = {},
+  ) {
+    this.log = options.log ?? (() => undefined);
+    this.listTimeoutMs = options.listTimeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
+    this.retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
+    this.snapshot = options.snapshot ?? SNAPSHOT_TOOLS;
+    this.now = options.now ?? Date.now;
+  }
+
+  async list(): Promise<MirroredTool[]> {
+    const fresh = this.source === 'remote' || this.now() - this.lastAttempt < this.retryMs;
+    if (this.tools && !this.stale && fresh) return this.tools;
+    this.loading ??= this.load().finally(() => {
+      this.loading = undefined;
+    });
+    return this.loading;
+  }
+
+  /** Find a tool by local name, or by its remote dotted name. */
+  async resolve(name: string): Promise<MirroredTool | undefined> {
+    const tools = await this.list();
+    return this.byName.get(name) ?? tools.find((t) => t.remoteName === name);
+  }
+
+  /** Refetch the remote list on the next list(). */
+  invalidate(): void {
+    this.stale = true;
+  }
+
+  private async load(): Promise<MirroredTool[]> {
+    this.lastAttempt = this.now();
+    this.stale = false;
+    try {
+      this.set(mirrorTools(await this.remote.listTools(this.listTimeoutMs), this.log), 'remote');
+      if (this.loggedFallback) this.log(`fetched the live tool list from ${this.remote.describe()}; snapshot no longer in use`);
+      this.loggedFallback = false;
+    } catch (err) {
+      // A previously fetched remote list beats the snapshot.
+      if (this.source !== 'remote') {
+        if (!this.loggedFallback) {
+          const detail = err instanceof Error ? err.message : String(err);
+          this.log(
+            `could not fetch the tool list from ${this.remote.describe()} (${detail}); serving the bundled snapshot of ${this.snapshot.length} tools`,
+          );
+          this.loggedFallback = true;
+        }
+        this.set(mirrorTools(this.snapshot, this.log), 'snapshot');
+      }
+    }
+    return this.tools!;
+  }
+
+  private set(tools: MirroredTool[], source: ToolSource): void {
+    this.tools = tools;
+    this.byName = new Map(tools.map((t) => [t.localName, t]));
+    this.source = source;
+  }
 }

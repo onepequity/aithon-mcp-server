@@ -3,24 +3,20 @@
  *
  * Every value has a safe default so `npx aithon-mcp-server` works with no
  * setup for the public catalog tools. AITHON_API_KEY is only needed for the
- * tools that act on behalf of a registered agent.
+ * tools that act on behalf of a registered agent; the server decides which.
  */
-
-export type TransportMode = 'auto' | 'mcp' | 'legacy';
 
 export interface AithonConfig {
   /** Bearer key for the Aithon agent API, or undefined for anonymous use. */
   apiKey?: string;
   /** Streamable HTTP MCP endpoint. */
   mcpUrl: string;
-  /** Legacy JSON-RPC endpoint (published in /.well-known/mcp.json as rpc_url). */
-  rpcUrl: string;
-  /** Which remote protocol to use. `auto` tries MCP first and falls back to legacy JSON-RPC. */
-  transport: TransportMode;
-  /** Optional catalog slug; scopes both endpoints to /c/:catalogSlug. */
+  /** Optional catalog slug; scopes the endpoint to /c/:catalogSlug. */
   catalog?: string;
   /** Per-request timeout in milliseconds. */
   timeoutMs: number;
+  /** Non-fatal configuration notices (deprecated variables) to log at startup. */
+  warnings: string[];
 }
 
 export const DEFAULT_BASE_URL = 'https://aithon.tech';
@@ -57,11 +53,8 @@ export function parseRemoteUrl(raw: string, name: string): string {
   throw new ConfigError(`${name} must use https (plain http is only allowed for localhost): ${raw}`);
 }
 
-function scopedPath(catalog: string | undefined, path: string): string {
-  return catalog ? `/c/${encodeURIComponent(catalog)}${path}` : path;
-}
-
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AithonConfig {
+  const warnings: string[] = [];
   const catalog = clean(env.AITHON_CATALOG);
   if (catalog && !CATALOG_SLUG.test(catalog)) {
     throw new ConfigError(`AITHON_CATALOG must be a catalog slug (letters, digits, "-" or "_"): ${catalog}`);
@@ -69,15 +62,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AithonConfig {
 
   const baseUrl = parseRemoteUrl(clean(env.AITHON_BASE_URL) ?? DEFAULT_BASE_URL, 'AITHON_BASE_URL');
   const origin = new URL(baseUrl).origin;
+  const scoped = catalog ? `/c/${encodeURIComponent(catalog)}/mcp` : '/mcp';
+  const mcpUrl = parseRemoteUrl(clean(env.AITHON_MCP_URL) ?? `${origin}${scoped}`, 'AITHON_MCP_URL');
 
-  const explicitMcp = clean(env.AITHON_MCP_URL);
-  const explicitRpc = clean(env.AITHON_RPC_URL);
-  const mcpUrl = parseRemoteUrl(explicitMcp ?? `${origin}${scopedPath(catalog, '/mcp')}`, 'AITHON_MCP_URL');
-  const rpcUrl = parseRemoteUrl(explicitRpc ?? `${origin}${scopedPath(catalog, '/api/v1/mcp/rpc')}`, 'AITHON_RPC_URL');
-
-  const transportRaw = (clean(env.AITHON_TRANSPORT) ?? 'auto').toLowerCase();
-  if (transportRaw !== 'auto' && transportRaw !== 'mcp' && transportRaw !== 'legacy') {
-    throw new ConfigError(`AITHON_TRANSPORT must be one of auto, mcp, legacy: ${transportRaw}`);
+  // AITHON_TRANSPORT keeps accepting its 0.1.x values. Since 0.2.0 the only
+  // transport is Streamable HTTP MCP: `auto` and `mcp` are equivalent, and
+  // `legacy` (the old aithon.* JSON-RPC endpoint) is ignored with a warning.
+  const transport = (clean(env.AITHON_TRANSPORT) ?? 'auto').toLowerCase();
+  if (transport !== 'auto' && transport !== 'mcp' && transport !== 'legacy') {
+    throw new ConfigError(`AITHON_TRANSPORT must be one of auto, mcp, legacy: ${transport}`);
+  }
+  if (transport === 'legacy') {
+    warnings.push('AITHON_TRANSPORT=legacy is no longer supported (removed in 0.2.0); using the MCP endpoint');
+  }
+  if (clean(env.AITHON_RPC_URL)) {
+    warnings.push('AITHON_RPC_URL is ignored since 0.2.0; the relay only uses AITHON_MCP_URL');
   }
 
   const timeoutRaw = clean(env.AITHON_TIMEOUT_MS);
@@ -86,12 +85,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AithonConfig {
     throw new ConfigError(`AITHON_TIMEOUT_MS must be a positive number of milliseconds: ${timeoutRaw}`);
   }
 
-  return {
-    apiKey: clean(env.AITHON_API_KEY),
-    mcpUrl,
-    rpcUrl,
-    transport: transportRaw,
-    catalog,
-    timeoutMs,
-  };
+  return { apiKey: clean(env.AITHON_API_KEY), mcpUrl, catalog, timeoutMs, warnings };
 }

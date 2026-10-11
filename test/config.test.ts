@@ -9,27 +9,29 @@ describe('loadConfig', () => {
     expect(config).toEqual({
       apiKey: undefined,
       mcpUrl: 'https://aithon.tech/mcp',
-      rpcUrl: 'https://aithon.tech/api/v1/mcp/rpc',
-      transport: 'auto',
       catalog: undefined,
       timeoutMs: 30_000,
+      warnings: [],
     });
   });
 
-  it('scopes both endpoints to a catalog slug', () => {
-    const config = loadConfig({ AITHON_CATALOG: 'acme-it' });
-    expect(config.mcpUrl).toBe('https://aithon.tech/c/acme-it/mcp');
-    expect(config.rpcUrl).toBe('https://aithon.tech/c/acme-it/api/v1/mcp/rpc');
+  it('scopes the endpoint to a catalog slug', () => {
+    expect(loadConfig({ AITHON_CATALOG: 'acme-it' }).mcpUrl).toBe('https://aithon.tech/c/acme-it/mcp');
   });
 
-  it('lets explicit URLs override the defaults', () => {
-    const config = loadConfig({
-      AITHON_CATALOG: 'acme-it',
-      AITHON_MCP_URL: 'https://example.com/custom/mcp',
-      AITHON_RPC_URL: 'http://localhost:4000/rpc',
-    });
-    expect(config.mcpUrl).toBe('https://example.com/custom/mcp');
-    expect(config.rpcUrl).toBe('http://localhost:4000/rpc');
+  it('lets an explicit URL override the default', () => {
+    const config = loadConfig({ AITHON_CATALOG: 'acme-it', AITHON_MCP_URL: 'http://localhost:4000/mcp' });
+    expect(config.mcpUrl).toBe('http://localhost:4000/mcp');
+  });
+
+  it('still accepts the 0.1.x transport values, warning about removed legacy options', () => {
+    expect(loadConfig({ AITHON_TRANSPORT: 'mcp' }).warnings).toEqual([]);
+    expect(loadConfig({ AITHON_TRANSPORT: 'AUTO' }).warnings).toEqual([]);
+    const legacy = loadConfig({ AITHON_TRANSPORT: 'legacy', AITHON_RPC_URL: 'https://example.com/rpc' });
+    expect(legacy.mcpUrl).toBe('https://aithon.tech/mcp');
+    expect(legacy.warnings).toHaveLength(2);
+    expect(legacy.warnings.join('\n')).toMatch(/AITHON_TRANSPORT=legacy is no longer supported/);
+    expect(legacy.warnings.join('\n')).toMatch(/AITHON_RPC_URL is ignored/);
   });
 
   it('trims the API key and treats blank as absent', () => {
