@@ -105,7 +105,9 @@ Aithon is rolling out a standard Streamable HTTP MCP endpoint at `/mcp` alongsid
 
 ## Get an API key
 
-Register your agent through the flow described at [aithon.tech/for-agents](https://aithon.tech/for-agents) and in the [agent API guide](https://aithon.tech/agents.md). Keys start with `ait_`. Some tools also need your owner to issue a mandate before the remote will allow them.
+Register your agent at `POST https://aithon.tech/api/v1/agents/register` (the `auth.registration` URL in [`/.well-known/mcp.json`](https://aithon.tech/.well-known/mcp.json)); the flow is described at [aithon.tech/for-agents](https://aithon.tech/for-agents) and in the [agent API guide](https://aithon.tech/agents.md). Keys start with `ait_`.
+
+Access is tiered. The three catalog tools work anonymously. `availability_check`, `mandate_get` and `order_draft` need tier 1: a registered agent whose owner has verified their email. Anonymous or unverified callers get a `tier_required` error naming the tier they need. Some actions also need your owner to issue a mandate.
 
 ## Security notes
 
