@@ -23,7 +23,7 @@ Machine-readable discovery files: [`/.well-known/mcp.json`](https://aithon.tech/
 One command, no global install (Node.js 20 or newer):
 
 ```bash
-npx -y aithon-mcp-server
+npx -y github:onepequity/aithon-mcp-server
 ```
 
 The catalog tools work without an API key. Tools that act for a registered agent need `AITHON_API_KEY` (see [Get an API key](#get-an-api-key)).
@@ -37,7 +37,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "aithon": {
       "command": "npx",
-      "args": ["-y", "aithon-mcp-server"],
+      "args": ["-y", "github:onepequity/aithon-mcp-server"],
       "env": {
         "AITHON_API_KEY": "ait_your_key_here"
       }
@@ -49,7 +49,7 @@ Add to `claude_desktop_config.json`:
 ### Claude Code
 
 ```bash
-claude mcp add --transport stdio --env AITHON_API_KEY=ait_your_key_here aithon -- npx -y aithon-mcp-server
+claude mcp add --transport stdio --env AITHON_API_KEY=ait_your_key_here aithon -- npx -y github:onepequity/aithon-mcp-server
 ```
 
 ### Cursor
@@ -61,7 +61,7 @@ Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
   "mcpServers": {
     "aithon": {
       "command": "npx",
-      "args": ["-y", "aithon-mcp-server"],
+      "args": ["-y", "github:onepequity/aithon-mcp-server"],
       "env": {
         "AITHON_API_KEY": "ait_your_key_here"
       }

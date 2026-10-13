@@ -24,7 +24,8 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "snapshot": "node scripts/update-snapshot.mjs",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "prepare": "npm run build"
   },
   "keywords": [
     "mcp",
